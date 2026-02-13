@@ -1,0 +1,82 @@
+-- title:  demo with rotating cube
+-- author: game developer
+-- desc:   bouncing sprite, scroller, 3D cube
+-- script: lua
+
+-- sprite position
+x=120
+y=68
+
+-- sprite velocity
+vx=1
+vy=1
+
+-- scroller variables
+scroll_x=240
+scroll_text="WELCOME TO TIC-80! * ROTATING 3D CUBE * CLASSIC DEMO EFFECTS * GREETINGS TO ALL RETRO CODERS * "
+color_cycle=0
+
+-- rotation angles
+rx=0
+ry=0
+rz=0
+
+-- cube vertices
+cube={
+	{-20,-20,-20},{20,-20,-20},{20,20,-20},{-20,20,-20},
+	{-20,-20,20},{20,-20,20},{20,20,20},{-20,20,20}
+}
+
+function rotate3d(x,y,z,ax,ay,az)
+	-- rotate around x
+	local y1=y*math.cos(ax)-z*math.sin(ax)
+	local z1=y*math.sin(ax)+z*math.cos(ax)
+	-- rotate around y
+	local x2=x*math.cos(ay)-z1*math.sin(ay)
+	local z2=x*math.sin(ay)+z1*math.cos(ay)
+	-- rotate around z
+	local x3=x2*math.cos(az)-y1*math.sin(az)
+	local y3=x2*math.sin(az)+y1*math.cos(az)
+	return x3,y3,z2
+end
+
+function TIC()
+	-- update sprite position
+	x=x+vx
+	y=y+vy
+	
+	-- bounce off edges
+	if x<=0 or x>=232 then vx=-vx end
+	if y<=0 or y>=128 then vy=-vy end
+	
+	-- update scroller
+	scroll_x=scroll_x-1
+	if scroll_x<-#scroll_text*6 then scroll_x=240 end
+	
+	-- update color cycle slowly
+	color_cycle=color_cycle+0.05
+	local text_color=math.floor(color_cycle)%16
+	
+	-- update rotation
+	rx=rx+0.02
+	ry=ry+0.03
+	rz=rz+0.01
+	
+	-- clear screen
+	cls(0)
+	
+	-- draw scroller with color cycling
+	print(scroll_text,scroll_x,2,text_color)
+	line(0,12,240,12,13)
+	
+	-- draw rotating cube (centered at 120, 68)
+	for i=1,#cube do
+		local vx,vy,vz=rotate3d(cube[i][1],cube[i][2],cube[i][3],rx,ry,rz)
+		local sx=vx+120
+		local sy=vy+68
+		circ(sx,sy,2,6+i%8)
+	end
+	
+	-- draw sprite
+	spr(1,x,y,0)
+end
