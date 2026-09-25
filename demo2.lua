@@ -67,32 +67,42 @@ bars={
 	{hue={0xa7,0xf0,0x70},amp=48,speed=-0.7,phase=192}
 }
 
--- per-scanline colour, rebuilt in update and consumed by SCN
+-- per-scanline colour, rebuilt in update and consumed by SCN. line_s keeps the
+-- falloff that produced each line so overlapping bars resolve brightest-first.
 line_r={}
 line_g={}
 line_b={}
-for i=0,scr_h-1 do line_r[i]=0 line_g[i]=0 line_b[i]=0 end
+line_s={}
+for i=0,scr_h-1 do line_r[i]=0 line_g[i]=0 line_b[i]=0 line_s[i]=0 end
 
 function bars_build(t)
 	for y=0,scr_h-1 do
 		line_r[y]=0
 		line_g[y]=0
 		line_b[y]=0
+		line_s[y]=0
 	end
 	for i=1,#bars do
 		local b=bars[i]
 		local cy=scr_h/2+isin(b.phase+t*b.speed)*b.amp
 		local half=bar_h/2
+		-- span the full width of the falloff, floor to ceil. Stopping at
+		-- top+bar_h-1 would clip the bottom edge while leaving the top soft,
+		-- which reads as a hard line under every bar.
 		local top=math.floor(cy-half)
+		local bot=math.ceil(cy+half)
 		local hue=b.hue
-		for y=top,top+bar_h-1 do
+		for y=top,bot do
 			if y>=0 and y<scr_h then
 				-- squared falloff from the middle, so each bar reads as a
 				-- rounded tube rather than a flat stripe
 				local d=(y-cy)/half
 				local s=1-d*d
-				if s>0 then
-					-- later bars paint over earlier ones, as a copper list did
+				-- brightest bar wins. Painting later-bar-over-earlier would let
+				-- a dim edge cut a notch through a bright centre where two
+				-- bars cross.
+				if s>line_s[y] then
+					line_s[y]=s
 					line_r[y]=hue[1]*s
 					line_g[y]=hue[2]*s
 					line_b[y]=hue[3]*s
@@ -121,10 +131,14 @@ function bars_scanline(line)
 end
 
 -- ------------------------------------------------------------ DYCP logo -----
+-- The fixed-width font cell is 8x8, so a `fixed` print advances 8*scale per
+-- character. Deriving the advance from that rather than from print's return
+-- value keeps it independent of whether that return accounts for scale.
+font_cell=8
+
 logo_text="TIC-80"
 logo_scale=4
--- measured rather than assumed, so it stays centred if the text or font change
-logo_w=print(logo_text,0,-64,0,true,logo_scale)
+logo_w=#logo_text*font_cell*logo_scale
 logo_x=(scr_w-logo_w)//2
 logo_y=24
 
@@ -142,7 +156,7 @@ end
 -- real hardware. Here it is just one print per character.
 dycp_text="** GREETINGS FROM TIC-80 ** COPPER BARS AND A DYCP SCROLLER LIKE IT IS 1989 ** "
 dycp_scale=2
-dycp_char_w=print("W",0,-64,0,true,dycp_scale)
+dycp_char_w=font_cell*dycp_scale
 dycp_amp=20
 dycp_y=scr_h-46
 dycp_x=scr_w
@@ -273,7 +287,13 @@ scenes={
 		enter=function()
 			x=120
 			y=68
+			vx=1
+			vy=1
 			scroll_x=scr_w
+			rx=0
+			ry=0
+			rz=0
+			color_cycle=0
 		end,
 		update=function(t)
 			-- move the sprite and bounce it off the edges, staying clear of
@@ -339,10 +359,17 @@ fade_frames=30
 
 function update_fade()
 	local d=scenes[scene_index].dur
-	if scene_frame<fade_frames then
-		fade=scene_frame/fade_frames
-	elseif scene_frame>d-fade_frames then
-		fade=(d-scene_frame)/fade_frames
+	-- never spend more than half a scene fading, or a short scene's fade in and
+	-- fade out overlap and the level jumps part-way through
+	local fw=math.min(fade_frames,d//2)
+	if fw<1 then
+		fade=1
+		return
+	end
+	if scene_frame<fw then
+		fade=scene_frame/fw
+	elseif scene_frame>d-fw then
+		fade=(d-scene_frame)/fw
 	else
 		fade=1
 	end
@@ -359,6 +386,16 @@ end
 scanline=SCN
 
 function TIC()
+	-- Advance before drawing, not after. SCN runs during scanout, which happens
+	-- after TIC returns, so advancing at the end would leave the frame drawn by
+	-- the outgoing scene to be scanned out with the incoming scene's palette
+	-- hook -- a one frame glitch at every boundary.
+	if scene_frame>=scenes[scene_index].dur then
+		scene_frame=0
+		scene_index=scene_index%#scenes+1
+		scenes[scene_index].enter()
+	end
+
 	local s=scenes[scene_index]
 	update_fade()
 	-- re-establish the full palette at the current fade before the scene gets
@@ -369,11 +406,6 @@ function TIC()
 	s.draw(scene_frame)
 
 	scene_frame=scene_frame+1
-	if scene_frame>=s.dur then
-		scene_frame=0
-		scene_index=scene_index%#scenes+1
-		scenes[scene_index].enter()
-	end
 end
 
 scenes[scene_index].enter()
